@@ -8,7 +8,7 @@ scripts, configuration files, and all materials in this repository)
 Additional Use Grant:  
 Permitted for personal, educational, research, and internal business use.  
 
-Change Date: January 1, 2032  
+Change Date: January 1, 2040  
 Change License: Apache License 2.0
 
 1. Use Limitation
@@ -49,7 +49,27 @@ express or implied.
 The Licensor is not liable for any claims, damages, or losses arising
 from use of the Licensed Work.
 
+7. Proprietary Architectural and Conceptual Restrictions
+
+The Licensee is prohibited from copying, replicating, re-implementing,
+or deriving any competing system from the architectural concepts,
+design patterns, operational flows, or product positioning of MidasCore,
+including but not limited to:
+
+(1) zero-configuration deployment models  
+(2) automatic node registration or self-orchestrated cluster expansion  
+(3) the ingestion-to-storage pipeline design and fallback mechanisms  
+(4) the ControlPlane resource-governance model, including the Cutter mechanism  
+(5) the commercial positioning of MidasCore as a “zero-config, self-hosted
+enterprise observability platform”  
+(6) user experience patterns, installation flows, and lifecycle automation  
+
+These elements are considered proprietary intellectual property of the Licensor
+and may not be reproduced in any form, whether in code, architecture,
+documentation, or marketing materials.
+
 Summary (non-legal):  
 You can read, modify, and use the code internally.  
 You cannot sell it, host it as a service, or build a competing product.  
+You also cannot copy MidasCore’s architecture, concepts, flows, or positioning.  
 Commercial rights unlock automatically on the Change Date.
