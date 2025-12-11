@@ -5,19 +5,7 @@
 
 # MidasCore
 
-```txt
- __  __ _ _            ____                 
-|  \/  (_) | __ _ ___ / ___|___  _ __ ___   
-| |\/| | | |/ _` / __| |   / _ \| '__/ _ \  
-| |  | | | | (_| \__ \ |__| (_) | | |  __/  
-|_|  |_|_|_|\__,_|___/\____\___/|_|  \___|  
 
- __  __ ___ ____    _    ____   ____ ___  ____  _____ 
-|  \/  |_ _/ ___|  / \  / ___| / ___/ _ \|  _ \| ____|
-| |\/| || |\___ \ / _ \ \___ \| |  | | | | |_) |  _|  
-| |  | || | ___) / ___ \ ___) | |__| |_| |  _ <| |___ 
-|_|  |_|___|____/_/   \_\____/ \____\___/ |_| \_\_____|
-````
 
 **MidasCore** is a high-performance, self-hosted observability platform designed for modern distributed systems.
 It delivers enterprise-grade logging, monitoring, and AI-powered insights — **with zero configuration**.
