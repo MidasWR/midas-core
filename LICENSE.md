@@ -1,0 +1,55 @@
+Business Source License 1.1 (BSL 1.1)
+------------------------------------
+
+Licensor: MidasCore Project  
+Licensed Work: MidasCore (including installer, deployment assets,
+scripts, configuration files, and all materials in this repository)  
+
+Additional Use Grant:  
+Permitted for personal, educational, research, and internal business use.  
+
+Change Date: January 1, 2032  
+Change License: Apache License 2.0
+
+1. Use Limitation
+
+Before the Change Date, the Licensed Work may NOT be used for:
+
+(1) Commercial SaaS hosting or offering the Licensed Work as a service  
+(2) Commercial resale, sublicensing, or packaging as a paid product  
+(3) Development of competing logging/monitoring/observability products  
+(4) Any commercial use outside of the Licensor’s explicit written permission  
+
+All other usage—including internal company deployment, development,
+experimentation, educational use, and research—is allowed.
+
+2. Grant of Rights
+
+The Licensor grants the right to copy, modify, and redistribute the
+Licensed Work, provided that such use remains non-commercial and retains
+this license text.
+
+3. Change Date
+
+On the Change Date, the Licensed Work will transition permanently to
+the Apache License 2.0.
+
+4. Trademarks
+
+"MidasCore", associated logos, branding, and the domain name
+“midascore.click” are NOT licensed under this agreement.
+
+5. No Warranty
+
+The Licensed Work is provided “AS IS,” without warranty of any kind,
+express or implied.
+
+6. Limitation of Liability
+
+The Licensor is not liable for any claims, damages, or losses arising
+from use of the Licensed Work.
+
+Summary (non-legal):  
+You can read, modify, and use the code internally.  
+You cannot sell it, host it as a service, or build a competing product.  
+Commercial rights unlock automatically on the Change Date.
