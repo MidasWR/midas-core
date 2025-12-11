@@ -68,7 +68,7 @@ curl -L https://github.com/MidasWR/midas-core-installer/releases/latest/download
 
 ## 🌐 Dashboard Preview
 
-*(You can replace these placeholders with real screenshots later)*
+*(Placeholder Photo Of Interface)*
 
 ![Dashboard](https://img.shields.io/badge/Screenshot-Coming%20Soon-blue)
 
