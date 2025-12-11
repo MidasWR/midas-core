@@ -90,6 +90,6 @@ MidasCore is licensed under the **Business Source License 1.1 (BSL)**.
 Non-commercial and internal use is permitted.
 Commercial use requires a paid license until the Change Date.
 
-See: [LICENSE](./LICENSE)
+See: [LICENSE](./LICENSE.md)
 
 
