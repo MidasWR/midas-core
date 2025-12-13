@@ -3,7 +3,19 @@
 ![Platform](https://img.shields.io/badge/Platform-Kubernetes-blue)
 ![Made with Love](https://img.shields.io/badge/Built%20for-High%20Load-red)
 
-# MidasCore
+# ✨ **MidasCore**
+
+```bash
+███╗   ███╗██╗██████╗  █████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗
+████╗ ████║██║██╔══██╗██╔══██╗██╔════╝██╔════╝██╔══██╗██╔══██╗██╔════╝
+██╔████╔██║██║██║  ██║███████║███████╗██║     ██║  ██║██████╔╝█████╗
+██║╚██╔╝██║██║██║  ██║██╔══██║╚════██║██║     ██║  ██║██╔══██╗██╔══╝
+██║ ╚═╝ ██║██║██████╔╝██║  ██║███████║╚██████╗╚██████╔╝██║  ██║███████╗
+╚═╝     ╚═╝╚═╝╚═════╝ ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═════╝ ╚═╝  ╚═╝╚══════╝
+
+                  ✧ ✦ ✧   M I D A S C O R E   ✧ ✦ ✧
+                     Built for High Load • Forged in Gold
+```
 
 
 
@@ -64,7 +76,60 @@ curl -L https://github.com/MidasWR/midas-core-installer/releases/latest/download
  -o installer && chmod +x installer && ./installer
 ```
 
----
+## 🏭 Production-Grade Ingestion Pipeline
+
+MidasCore provides an end-to-end ingestion flow designed for high-load environments, where stability, resilience, and throughput matter more than your sleep schedule.
+
+### **How Logs Travel Through the System**
+
+```
++--------------------+        gRPC Stream        +------------------+ 
+|  Log Agent (Host)  |  ───────────────────────> |   Gateway Node   |
+|  Docker Container  |                           | (Ingress Layer)  |
++--------------------+                           +------------------+
+         |                                                   |
+         | file tailing                                      | async batching
+         v                                                   v
++------------------------------------------------+    +-----------------------+
+| /var/log, /opt, /home mounts (real filesystem) |    |  Kafka Transport Bus  |
++------------------------------------------------+    +-----------------------+
+                                                            |
+                                                            | high-throughput pipeline
+                                                            v
+                                              +------------------------------+
+                                              |        ClickHouse DB         |
+                                              |  (Real-time log storage)     |
+                                              +------------------------------+
+```
+
+### Core Guarantees
+
+✔ **Backpressure-safe streams**: the agent never chokes even during traffic spikes.
+✔ **Batching + compression**: minimal network overhead with optimized payloads.
+✔ **Auto-retry**: the agent seamlessly rebuilds the stream after connection failures.
+✔ **Zero configuration**: no YAML files, no rituals, no headaches.
+
+
+## 🛰 Log Agent Example (Docker)
+
+```bash
+docker run -d \
+  --name midas-agent \
+  -v /var/log:/var/log \
+  -v /opt:/opt \
+  -v /home:/home \
+  -e TARGET_ADDRESS=<IP>:50051 \
+  midaswr/log-agent-midascore:latest
+```
+
+The agent:
+
+* Streams logs from real host directories
+* Automatically discovers new files
+* Sends everything to the MidasCore Gateway
+* Recovers from network failures
+* Operates with **zero manual configuration**
+
 
 ## 🌐 Dashboard Preview
 
