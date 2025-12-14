@@ -1,3 +1,4 @@
+
 ![License: BSL 1.1](https://img.shields.io/badge/License-BSL%201.1-orange.svg)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen)
 ![Platform](https://img.shields.io/badge/Platform-Kubernetes-blue)
@@ -15,12 +16,10 @@
 
                   ✧ ✦ ✧   M I D A S C O R E   ✧ ✦ ✧
                      Built for High Load • Forged in Gold
-```
-
-
+````
 
 **MidasCore** is a high-performance, self-hosted observability platform designed for modern distributed systems.
-It delivers enterprise-grade logging, monitoring, and AI-powered insights — **with zero configuration**.
+Enterprise-grade logging, monitoring, and AI-powered insights with **zero configuration**.
 
 👉 Official website: **[https://midascore.click](https://midascore.click)**
 
@@ -28,23 +27,22 @@ It delivers enterprise-grade logging, monitoring, and AI-powered insights — **
 
 ## 🚀 Key Capabilities
 
-### **⚡ Zero-Config Installation**
+### ⚡ Zero-Config Installation
 
-Instant deployment with a single command.
-Configure nothing — MidasCore does all the work.
+Instant deployment with a single command. Configure nothing.
 
-### **📈 High-Throughput Log Streaming**
+### 📈 High-Throughput Log Streaming
 
-Designed for extreme workloads: tens of thousands of events per second.
+Designed for high-load workloads: tens of thousands of events per second.
 
-### **🤖 AI-Powered Insights**
+### 🤖 AI-Powered Insights
 
 * Automated log summaries
 * Anomaly detection
 * Natural-language querying
 * Context awareness
 
-### **📊 Full Observability Dashboard**
+### 📊 Full Observability Dashboard
 
 * Real-time logs
 * Search & filtering
@@ -52,7 +50,7 @@ Designed for extreme workloads: tens of thousands of events per second.
 * RPS analytics
 * User & key management
 
-### **🧩 REST + gRPC**
+### 🧩 REST + gRPC
 
 High-performance ingestion via gRPC, with auto-fallback to REST.
 
@@ -76,11 +74,13 @@ curl -L https://github.com/MidasWR/midas-core-installer/releases/latest/download
  -o installer && chmod +x installer && ./installer
 ```
 
+---
+
 ## 🏭 Production-Grade Ingestion Pipeline
 
 MidasCore provides an end-to-end ingestion flow designed for high-load environments, where stability, resilience, and throughput matter more than your sleep schedule.
 
-### **How Logs Travel Through the System**
+### How Logs Travel Through the System
 
 ```
 +--------------------+        gRPC Stream        +------------------+ 
@@ -104,13 +104,16 @@ MidasCore provides an end-to-end ingestion flow designed for high-load environme
 
 ### Core Guarantees
 
-✔ **Backpressure-safe streams**: the agent never chokes even during traffic spikes.
-✔ **Batching + compression**: minimal network overhead with optimized payloads.
-✔ **Auto-retry**: the agent seamlessly rebuilds the stream after connection failures.
-✔ **Zero configuration**: no YAML files, no rituals, no headaches.
+✔ Backpressure-safe streams
+✔ Batching + compression
+✔ Auto-retry on disconnects
+✔ Zero configuration
 
+---
 
-## 🛰 Log Agent Example (Docker)
+## 🛰 Ingestion Options
+
+### Option A: Log Agent (Docker)
 
 ```bash
 docker run -d \
@@ -126,16 +129,43 @@ The agent:
 
 * Streams logs from real host directories
 * Automatically discovers new files
-* Sends everything to the MidasCore Gateway
 * Recovers from network failures
-* Operates with **zero manual configuration**
+* Requires **zero manual configuration**
 
+### Option B: SDK Integration (recommended for high-load services)
+
+If you’re running a high-load backend and want **direct structured logging** with minimal overhead, use the SDK instead of file-tailing.
+
+SDK repo: **[https://github.com/MidasWR/mc-go-writer](https://github.com/MidasWR/mc-go-writer)**
+
+Why SDK is better for high-load:
+
+* No filesystem tailing overhead
+* Structured logs from code (better filtering + analytics)
+* Cleaner ingestion for microservices and k8s workloads
+
+---
 
 ## 🌐 Dashboard Preview
 
-*(Placeholder Photo Of Interface)*
+### Logs
 
-![Dashboard](https://img.shields.io/badge/Screenshot-Coming%20Soon-blue)
+![Logs Interface](./LogsInterface.png)
+
+### Node Scaling
+
+![Node Scaling Interface](./NodeScallingInterface.png)
+
+### System Info
+
+![System Info Interface](./SysInfoInterface.png)
+
+---
+
+## ❓ FAQ
+
+Most common questions (installation, agent, ports, ingestion, troubleshooting):
+➡️ **[Read FAQ](./FAQ.md)**
 
 ---
 
@@ -152,9 +182,7 @@ The agent:
 ## 📄 License
 
 MidasCore is licensed under the **Business Source License 1.1 (BSL)**.
-Non-commercial and internal use is permitted.
-Commercial use requires a paid license until the Change Date.
+Non-commercial and internal use is permitted. Commercial use requires a paid license until the Change Date.
 
-See: [LICENSE](./LICENSE.md)
-
+See: **[LICENSE](./LICENSE.md)**
 
