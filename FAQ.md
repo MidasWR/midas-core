@@ -99,5 +99,4 @@ By default:
 
 Grafana already has dashboards for system metrics, RPS, agents, and other internals of the platform.
 
-```
 
