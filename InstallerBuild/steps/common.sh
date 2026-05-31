@@ -56,8 +56,16 @@ require_crd(){
 ensure_strimzi_operator(){
   local crd="kafkas.kafka.strimzi.io"
 
+  if has_crd "$crd" \
+    && kubectl -n kafka get deployment strimzi-cluster-operator >/dev/null 2>&1 \
+    && kubectl -n kafka wait deployment/strimzi-cluster-operator --for=condition=Available --timeout=30s >/dev/null 2>&1; then
+    log "Strimzi operator already healthy — skipping helm upgrade"
+    wait_crd "$crd" 60s
+    return 0
+  fi
+
   if has_crd "$crd"; then
-    log "Strimzi CRD present — verifying operator deployment..."
+    log "Strimzi CRD present — installing/upgrading operator..."
   else
     log "Strimzi CRD missing — installing Strimzi Kafka Operator..."
   fi
