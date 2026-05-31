@@ -1,0 +1,24 @@
+{{- if .Values.AuthService.persistence.enabled }}
+{{- if not .Values.AuthService.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{.Values.AuthService.DNS}}-db
+  annotations:
+    "helm.sh/resource-policy": keep
+  labels:
+    app.kubernetes.io/name: {{.Values.AuthService.DNS }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes:
+  {{- range .Values.AuthService.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.AuthService.persistence.size | quote }}
+  {{- if .Values.AuthService.persistence.storageClassName }}
+  storageClassName: {{ .Values.AuthService.persistence.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

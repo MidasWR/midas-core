@@ -1,0 +1,26 @@
+{{- if .Values.ControlPlaneService.persistence.enabled }}
+{{- if not .Values.ControlPlaneService.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{.Values.ControlPlaneService.DNS}}-db
+  annotations:
+    # Helm must never modify or delete this PVC after initial creation.
+    # storageClassName and other spec fields are immutable once the PVC is bound.
+    "helm.sh/resource-policy": keep
+  labels:
+    app.kubernetes.io/name: {{.Values.ControlPlaneService.DNS }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes:
+  {{- range .Values.ControlPlaneService.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.ControlPlaneService.persistence.size | quote }}
+  {{- if .Values.AgentScalerService.persistence.storageClassName }}
+  storageClassName: {{ .Values.ControlPlaneService.persistence.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,32 @@
+clickhouse:
+  name: log-c-clickhouse
+
+  shardCount: 1
+  replicaCount: 1
+
+  auth:
+    username: default
+    password: ""
+
+  # ===== STORAGE =====
+  storage: 1Gi
+  storageClass: longhorn
+
+
+  settings:
+    compression: "lz4"
+
+  pod:
+    name: log-c-pod
+    image: clickhouse/clickhouse-server:24.8
+
+  resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2"
+        memory: "4Gi"
+
+atlasSchema:
+  enabled: false

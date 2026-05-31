@@ -1,0 +1,29 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{.Values.controller.name}}
+  namespace: {{.Values.namespace}}
+  labels:
+    strimzi.io/cluster: {{.Values.cluster.name}}
+spec:
+  replicas: {{.Values.controller.replicas}}
+  roles: ["controller"]
+  # KRaft controllers MUST use persistent storage.
+  # With ephemeral storage every pod restart wipes the cluster metadata log
+  # (cluster ID, leader epoch, topic state) → entity operator sees id=null
+  # and loops in AdminClient Rebootstrapping until re-initialization completes.
+  storage:
+    type: persistent-claim
+    size: {{ .Values.controller.storage.size | default "10Gi" }}
+    class: {{ .Values.storageClass | default "local-path" }}
+    deleteClaim: false
+  resources:
+    requests:
+      cpu: {{ .Values.controller.resources.request.cpu | default "500m" | quote }}
+      memory: {{ .Values.controller.resources.request.memory | default "500Mi" | quote }}
+    limits:
+      cpu: {{ .Values.controller.resources.limit.cpu | default "1" | quote }}
+      memory: {{ .Values.controller.resources.limit.memory | default "1Gi" | quote }}
+  jvmOptions:
+    -Xms: {{ .Values.controller.jvm.xms | default "1g" }}
+    -Xmx: {{ .Values.controller.jvm.xmx | default "1g" }}

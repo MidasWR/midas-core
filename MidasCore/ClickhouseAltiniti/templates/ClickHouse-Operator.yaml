@@ -1,0 +1,114 @@
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: {{ .Values.clickhouse.name }}
+spec:
+  defaults:
+    templates:
+      podTemplate: {{ .Values.clickhouse.pod.name }}
+      volumeClaimTemplate: data
+
+  configuration:
+    users:
+{{- $chUser := .Values.clickhouse.auth.username | default "default" }}
+
+      {{ printf "%s/password" $chUser }}: {{ .Values.clickhouse.auth.password | default "" | quote }}
+      {{ printf "%s/access_management" $chUser }}: 1
+      {{ printf "%s/networks/ip" $chUser }}:
+        - "0.0.0.0/0"
+        - "::/0"
+
+    settings:
+      compression: {{ .Values.clickhouse.settings.compression | default "lz4" | quote }}
+
+    clusters:
+      - name: main
+        layout:
+          shardsCount: {{ .Values.clickhouse.shardCount }}
+          replicasCount: {{ .Values.clickhouse.replicaCount }}
+        templates:
+          podTemplate: {{ .Values.clickhouse.pod.name }}
+
+  templates:
+    podTemplates:
+      - name: {{ .Values.clickhouse.pod.name }}
+        spec:
+          terminationGracePeriodSeconds: 60
+
+          affinity:
+            nodeAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  preference:
+                    matchExpressions:
+                      - key: midas.io/storage
+                        operator: In
+                        values:
+                          - "true"
+            podAntiAffinity:
+              preferredDuringSchedulingIgnoredDuringExecution:
+                - weight: 100
+                  podAffinityTerm:
+                    topologyKey: kubernetes.io/hostname
+                    labelSelector:
+                      matchExpressions:
+                        - key: clickhouse.altinity.com/chi
+                          operator: In
+                          values:
+                            - {{ .Values.clickhouse.name }}
+                        - key: clickhouse.altinity.com/cluster
+                          operator: In
+                          values:
+                            - main
+
+          containers:
+            - name: clickhouse
+              image: {{ .Values.clickhouse.pod.image | quote }}
+              imagePullPolicy: IfNotPresent
+
+              ports:
+                - name: http
+                  containerPort: 8123
+                - name: native
+                  containerPort: 9000
+
+              resources:
+                requests:
+                  cpu: {{ .Values.clickhouse.resources.requests.cpu | default "500m" | quote }}
+                  memory: {{ .Values.clickhouse.resources.requests.memory | default "1Gi" | quote }}
+                limits:
+                  cpu: {{ .Values.clickhouse.resources.limits.cpu | default "2" | quote }}
+                  memory: {{ .Values.clickhouse.resources.limits.memory | default "4Gi" | quote }}
+
+              volumeMounts:
+                - name: data
+                  mountPath: /var/lib/clickhouse
+
+              # Базовые пробы: ClickHouse обычно отдаёт 200 на /ping
+              readinessProbe:
+                httpGet:
+                  path: /ping
+                  port: 8123
+                initialDelaySeconds: 10
+                periodSeconds: 5
+                timeoutSeconds: 2
+                failureThreshold: 12
+
+              livenessProbe:
+                httpGet:
+                  path: /ping
+                  port: 8123
+                initialDelaySeconds: 30
+                periodSeconds: 10
+                timeoutSeconds: 2
+                failureThreshold: 6
+
+    volumeClaimTemplates:
+      - name: data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ .Values.clickhouse.storageClass | default "local-path" | quote }}
+          resources:
+            requests:
+              storage: {{ .Values.clickhouse.storage | default "50Gi" | quote }}

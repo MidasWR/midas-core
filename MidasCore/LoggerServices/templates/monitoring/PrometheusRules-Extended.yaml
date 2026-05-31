@@ -1,0 +1,392 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: midas-extended-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prom
+    app: midas-core
+spec:
+  groups:
+
+    # ================================================================
+    # Kafka Consumer Lag (requires kafkaExporter in Kafka CR)
+    # ================================================================
+    - name: kafka.consumer_lag
+      interval: 30s
+      rules:
+
+        - alert: KafkaConsumerLagHigh
+          expr: |
+            kafka_consumergroup_lag{
+              namespace="kafka",
+              topic="logs"
+            } > 50000
+          for: 5m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Kafka consumer group {{ "{{" }} $labels.consumergroup {{ "}}" }} lag is high
+            description: |
+              Consumer group {{ "{{" }} $labels.consumergroup {{ "}}" }} on topic {{ "{{" }} $labels.topic {{ "}}" }}
+              has {{ "{{" }} $value | printf "%.0f" {{ "}}" }} unprocessed messages for 5+ minutes.
+              EventService is falling behind. Consider scaling up replicas:
+              kubectl -n midas scale deployment log-event-src --replicas=<N>
+
+        - alert: KafkaConsumerLagCritical
+          expr: |
+            kafka_consumergroup_lag{
+              namespace="kafka",
+              topic="logs"
+            } > 200000
+          for: 2m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Kafka consumer lag CRITICAL — {{ "{{" }} $labels.consumergroup {{ "}}" }}
+            description: |
+              Consumer group {{ "{{" }} $labels.consumergroup {{ "}}" }} has {{ "{{" }} $value | printf "%.0f" {{ "}}" }}
+              unprocessed messages. At this lag rate, messages will hit TTL (1h) and be lost.
+              Immediate action: scale EventService or investigate ClickHouse write bottleneck.
+
+        - alert: KafkaConsumerGroupInactive
+          expr: |
+            kafka_consumergroup_members{
+              namespace="kafka"
+            } == 0
+          for: 3m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Kafka consumer group {{ "{{" }} $labels.consumergroup {{ "}}" }} has no members
+            description: |
+              Consumer group {{ "{{" }} $labels.consumergroup {{ "}}" }} has 0 active members for 3+ minutes.
+              This means EventService is not running or has lost its Kafka connection.
+
+    # ================================================================
+    # ClickHouse — disk and query health
+    # ================================================================
+    - name: clickhouse.storage
+      interval: 60s
+      rules:
+
+        - alert: ClickHouseDiskSpaceCritical
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{
+                namespace="clickhouse"
+              }
+              /
+              kubelet_volume_stats_capacity_bytes{
+                namespace="clickhouse"
+              }
+            ) > 0.90
+          for: 5m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              ClickHouse PVC is {{ "{{" }} $value | humanizePercentage {{ "}}" }} full
+            description: |
+              ClickHouse PVC {{ "{{" }} $labels.persistentvolumeclaim {{ "}}" }} in namespace clickhouse
+              is over 90% full. Inserts will soon fail with a disk full error.
+              Actions:
+              1. Check TTL: logs should auto-delete after 7 days
+              2. Force merge: kubectl -n clickhouse exec <pod> -- clickhouse-client --query "OPTIMIZE TABLE logs.event_logs_local FINAL"
+              3. Increase PVC size or reduce batch size
+
+        - alert: ClickHouseDiskSpaceWarning
+          expr: |
+            (
+              kubelet_volume_stats_used_bytes{
+                namespace="clickhouse"
+              }
+              /
+              kubelet_volume_stats_capacity_bytes{
+                namespace="clickhouse"
+              }
+            ) > 0.75
+          for: 15m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              ClickHouse PVC is {{ "{{" }} $value | humanizePercentage {{ "}}" }} full
+            description: |
+              ClickHouse PVC usage is above 75%. Monitor closely.
+              TTL should clean up data older than 7 days automatically.
+
+        - alert: ClickHouseWatchdogFailing
+          expr: |
+            kube_job_failed{
+              namespace="clickhouse",
+              job_name=~"ch-watchdog.*"
+            } > 0
+          for: 0m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: ClickHouse watchdog detected issues
+            description: |
+              The ch-watchdog CronJob has reported failures.
+              Check logs: kubectl -n clickhouse logs -l job-name=<latest-ch-watchdog-job>
+
+    # ================================================================
+    # cert-manager — certificate expiry
+    # ================================================================
+    - name: certmanager.expiry
+      interval: 300s
+      rules:
+
+        - alert: CertificateExpiringSoon
+          expr: |
+            certmanager_certificate_expiration_timestamp_seconds{
+              namespace=~"midas|cert-manager"
+            } - time() < 30 * 24 * 3600
+          for: 0m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              TLS certificate {{ "{{" }} $labels.name {{ "}}" }} expires in < 30 days
+            description: |
+              Certificate {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.name {{ "}}" }} will expire in
+              {{ "{{" }} $value | humanizeDuration {{ "}}" }}. cert-manager should renew it automatically.
+              If auto-renewal is failing: kubectl -n {{ "{{" }} $labels.namespace {{ "}}" }} describe certificate {{ "{{" }} $labels.name {{ "}}" }}
+
+        - alert: CertificateExpiringCritical
+          expr: |
+            certmanager_certificate_expiration_timestamp_seconds{
+              namespace=~"midas|cert-manager"
+            } - time() < 7 * 24 * 3600
+          for: 0m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              TLS certificate {{ "{{" }} $labels.name {{ "}}" }} expires in < 7 days
+            description: |
+              URGENT: Certificate {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.name {{ "}}" }} expires in
+              {{ "{{" }} $value | humanizeDuration {{ "}}" }}. Envoy Gateway will reject TLS connections.
+              Force renewal: kubectl -n {{ "{{" }} $labels.namespace {{ "}}" }} delete certificaterequest -l cert-manager.io/certificate-name={{ "{{" }} $labels.name {{ "}}" }}
+
+        - alert: CertificateNotReady
+          expr: |
+            certmanager_certificate_ready_status{
+              namespace=~"midas|cert-manager",
+              condition="False"
+            } == 1
+          for: 5m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Certificate {{ "{{" }} $labels.name {{ "}}" }} is not Ready
+            description: |
+              cert-manager certificate {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.name {{ "}}" }}
+              has been in Not Ready state for 5+ minutes. TLS may be broken.
+              Check: kubectl -n {{ "{{" }} $labels.namespace {{ "}}" }} describe certificate {{ "{{" }} $labels.name {{ "}}" }}
+
+    # ================================================================
+    # Envoy Gateway — external traffic entrypoint
+    # ================================================================
+    - name: envoygateway.availability
+      interval: 30s
+      rules:
+
+        - alert: EnvoyGatewayDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="envoy-gateway-system"
+            } < 1
+          for: 2m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: Envoy Gateway controller is down
+            description: |
+              The Envoy Gateway deployment in envoy-gateway-system has 0 available replicas.
+              ALL external traffic to the Midas platform is dropped.
+              Recovery: kubectl -n envoy-gateway-system rollout restart deployment/envoy-gateway
+
+        - alert: EnvoyProxyDown
+          expr: |
+            kube_pod_status_ready{
+              condition="false",
+              namespace="envoy-gateway-system",
+              pod=~".*envoy.*"
+            } == 1
+          for: 2m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Envoy proxy pod {{ "{{" }} $labels.pod {{ "}}" }} is not ready
+            description: |
+              Envoy proxy pod {{ "{{" }} $labels.pod {{ "}}" }} is not ready for 2+ minutes.
+              Requests routed to this proxy will fail.
+
+        - alert: EnvoyGatewayCrashLoop
+          expr: |
+            kube_pod_container_status_waiting_reason{
+              reason="CrashLoopBackOff",
+              namespace="envoy-gateway-system"
+            } > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: Envoy Gateway component in CrashLoopBackOff
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in envoy-gateway-system is in CrashLoopBackOff.
+              All external traffic is impacted.
+
+    # ================================================================
+    # Longhorn — storage health
+    # ================================================================
+    - name: longhorn.storage
+      interval: 60s
+      rules:
+
+        - alert: LonghornVolumeDegraded
+          expr: |
+            longhorn_volume_robustness{
+              robustness!="healthy"
+            } == 1
+          for: 5m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Longhorn volume {{ "{{" }} $labels.volume {{ "}}" }} is degraded
+            description: |
+              Longhorn volume {{ "{{" }} $labels.volume {{ "}}" }} has robustness={{ "{{" }} $labels.robustness {{ "}}" }}.
+              Data may be at risk if another replica fails.
+              Check: kubectl -n longhorn-system get volumes
+
+        - alert: LonghornVolumeFaulted
+          expr: |
+            longhorn_volume_robustness{
+              robustness="faulted"
+            } == 1
+          for: 1m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Longhorn volume {{ "{{" }} $labels.volume {{ "}}" }} is FAULTED
+            description: |
+              Longhorn volume {{ "{{" }} $labels.volume {{ "}}" }} is in faulted state.
+              The PVC backed by this volume is unavailable — the dependent pod cannot start.
+              Manual intervention required in Longhorn UI or via kubectl.
+
+        - alert: LonghornNodeStoragePressure
+          expr: |
+            (
+              longhorn_node_storage_usage_bytes
+              /
+              longhorn_node_storage_capacity_bytes
+            ) > 0.85
+          for: 10m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Longhorn node {{ "{{" }} $labels.node {{ "}}" }} storage > 85%
+            description: |
+              Longhorn storage node {{ "{{" }} $labels.node {{ "}}" }} is {{ "{{" }} $value | humanizePercentage {{ "}}" }} full.
+              New volumes may not be schedulable. Consider adding storage or cleaning up.
+
+    # ================================================================
+    # Redis — session/rate-limit store
+    # ================================================================
+    - name: redis.availability
+      interval: 30s
+      rules:
+
+        - alert: RedisServiceUnreachable
+          expr: |
+            kube_pod_status_ready{
+              condition="false",
+              namespace="default",
+              pod=~"redis.*"
+            } == 1
+          for: 3m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: Redis pod is not ready
+            description: |
+              A Redis pod in the default namespace is not ready for 3+ minutes.
+              Services using REDIS_HOST (rate limiting, session storage) may be degraded.
+
+        - alert: RedisNotDeployed
+          expr: |
+            absent(kube_pod_info{
+              namespace="default",
+              pod=~"redis.*"
+            })
+          for: 10m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: No Redis pod found in default namespace
+            description: |
+              No Redis pod found matching redis.* in the default namespace.
+              Services that depend on REDIS_HOST will fail silently.
+              Deploy Redis or verify it is running under a different name.
+
+    # ================================================================
+    # VPA + HPA conflict detection
+    # ================================================================
+    - name: autoscaling.conflicts
+      interval: 300s
+      rules:
+
+        - alert: VPAAndHPAConflict
+          expr: |
+            (
+              kube_verticalpodautoscaler_status_recommendation_containerrecommendations_target{
+                resource="cpu",
+                namespace="midas"
+              } > 0
+            )
+            and on(target_api_version, target_kind, target_name, namespace)
+            (
+              kube_horizontalpodautoscaler_spec_max_replicas{
+                namespace="midas"
+              } > 1
+            )
+          for: 0m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              VPA and HPA both targeting CPU on {{ "{{" }} $labels.target_name {{ "}}" }}
+            description: |
+              Deployment {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.target_name {{ "}}" }} has both a VPA
+              recommendation for CPU and an HPA. This causes an oscillation:
+              VPA raises CPU requests → HPA sees lower utilization → HPA scales down →
+              VPA sees less load → adjusts again.
+              Fix: set VPA to manage memory-only (controlledResources: [memory]).

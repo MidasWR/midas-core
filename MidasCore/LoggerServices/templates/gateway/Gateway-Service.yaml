@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Values.Gateway.DNS}}
+spec:
+  selector:
+    app: {{.Values.Gateway.DNS}}
+  ports:
+    - protocol: TCP
+      port: {{.Values.Gateway.RestPort}}
+      targetPort: {{.Values.All.targetPort}}
+      name: http
+  type: LoadBalancer
+  

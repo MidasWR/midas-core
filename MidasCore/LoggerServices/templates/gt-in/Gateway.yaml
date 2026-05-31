@@ -1,0 +1,63 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: {{.Values.Gateway.DNS}}-gateway
+spec:
+  gatewayClassName: {{ .Values.Gateway.GatewayClassName | default "eg" }}
+  listeners:
+    # Primary listener: hostname-based access via nip.io or custom domain.
+    # Requires DNS resolution — does NOT work when VPN intercepts DNS.
+    - name: http
+      protocol: HTTP
+      port: 80
+      hostname: "{{.Values.ExternalIP}}.nip.io"
+      allowedRoutes:
+        kinds:
+          - kind: HTTPRoute
+        namespaces:
+          from: Same
+
+    # Fallback listener: accepts any hostname (direct IP, NodePort, VPN scenarios).
+    # Used when nip.io DNS is unavailable (corporate VPN, airgapped networks, etc.).
+    - name: http-direct
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        kinds:
+          - kind: HTTPRoute
+        namespaces:
+          from: Same
+
+    - name: grpc
+      protocol: {{ if .Values.Gateway.GRPCProtectionEnabled }}HTTPS{{ else }}HTTP{{ end }}
+      port: 50051
+      hostname: "{{.Values.ExternalIP}}.nip.io"
+      {{- if .Values.Gateway.GRPCProtectionEnabled }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ .Values.TLS.SecretName | default "log-gateway-tls" }}
+      {{- end }}
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+        namespaces:
+          from: Same
+
+    # gRPC fallback: accepts direct IP connections (VPN-safe)
+    - name: grpc-direct
+      protocol: {{ if .Values.Gateway.GRPCProtectionEnabled }}HTTPS{{ else }}HTTP{{ end }}
+      port: 50051
+      {{- if .Values.Gateway.GRPCProtectionEnabled }}
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: {{ .Values.TLS.SecretName | default "log-gateway-tls" }}
+      {{- end }}
+      allowedRoutes:
+        kinds:
+          - kind: GRPCRoute
+        namespaces:
+          from: Same

@@ -1,0 +1,30 @@
+---
+# Primary GRPCRoute: nip.io / custom domain (DNS-dependent)
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: {{.Values.Gateway.DNS}}-grpc
+spec:
+  parentRefs:
+    - name: {{.Values.Gateway.DNS}}-gateway
+      sectionName: grpc
+  hostnames:
+    - "{{.Values.ExternalIP}}.nip.io"
+  rules:
+    - backendRefs:
+        - name: {{.Values.GatewayStream.DNS}}
+          port: {{.Values.GatewayStream.gRPCPort}}
+---
+# Fallback GRPCRoute: direct IP / VPN-safe (no hostname restriction)
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: {{.Values.Gateway.DNS}}-grpc-direct
+spec:
+  parentRefs:
+    - name: {{.Values.Gateway.DNS}}-gateway
+      sectionName: grpc-direct
+  rules:
+    - backendRefs:
+        - name: {{.Values.GatewayStream.DNS}}
+          port: {{.Values.GatewayStream.gRPCPort}}

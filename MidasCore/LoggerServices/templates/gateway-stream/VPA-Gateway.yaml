@@ -1,0 +1,21 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{.Values.GatewayStream.DNS}}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{.Values.GatewayStream.DNS}}
+  updatePolicy:
+    updateMode: "Recreate"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        controlledResources:
+          - memory
+        controlledValues: RequestsAndLimits
+        minAllowed:
+          memory: "128Mi"
+        maxAllowed:
+          memory: "2Gi"

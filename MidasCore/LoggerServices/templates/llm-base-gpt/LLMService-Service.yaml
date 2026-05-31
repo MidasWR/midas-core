@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Values.LLMBaseGPTService.DNS}}
+spec:
+  selector:
+    app: {{.Values.LLMBaseGPTService.DNS}}
+  ports:
+    - protocol: TCP
+      port: {{.Values.LLMBaseGPTService.RestPort}}
+      targetPort: {{.Values.All.targetPort}}
+      name: http
+  type: LoadBalancer
+  

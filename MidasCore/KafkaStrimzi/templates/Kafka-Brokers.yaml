@@ -1,0 +1,25 @@
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: {{.Values.broker.name}}
+  namespace: {{.Values.namespace}}
+  labels:
+    strimzi.io/cluster: {{.Values.cluster.name}}
+spec:
+  replicas: {{.Values.broker.replicas}}
+  roles: ["broker"]
+  storage:
+    type: persistent-claim
+    size: {{ .Values.cluster.storage.size | default "10Gi" }}
+    class: {{ .Values.storageClass | default "local-path" }}
+    deleteClaim: false
+  resources:
+    requests:
+      cpu: {{ .Values.cluster.resources.request.cpu | default "1500m" | quote }}
+      memory: {{ .Values.cluster.resources.request.memory | default "2.5Gi" | quote }}
+    limits:
+      cpu: {{ .Values.cluster.resources.limit.cpu | default "2" | quote }}
+      memory: {{ .Values.cluster.resources.limit.memory | default "3Gi" | quote }}
+  jvmOptions:
+    -Xms: {{ .Values.cluster.jvm.xms | default "3g" }}
+    -Xmx: {{ .Values.cluster.jvm.xmx | default "3g" }}

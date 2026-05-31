@@ -1,0 +1,26 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: {{.Values.Gateway.DNS}}
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{.Values.Gateway.DNS}}
+  updatePolicy:
+    # Memory-only VPA: safe to run alongside a CPU-based HPA.
+    # HPA scales replicas based on CPU utilization.
+    # VPA adjusts memory requests/limits based on actual consumption.
+    # Running VPA in "Auto" for CPU AND HPA for CPU creates an oscillation loop:
+    # VPA raises CPU requests → utilization drops → HPA scales down → VPA re-adjusts.
+    updateMode: "Recreate"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        controlledResources:
+          - memory
+        controlledValues: RequestsAndLimits
+        minAllowed:
+          memory: "128Mi"
+        maxAllowed:
+          memory: "2Gi"

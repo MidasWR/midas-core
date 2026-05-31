@@ -1,0 +1,49 @@
+{{- if .Values.atlasSchema.enabled }}
+apiVersion: db.atlasgo.io/v1alpha1
+kind: AtlasSchema
+metadata:
+  name: midas-logs-schema
+  namespace: clickhouse
+spec:
+  # Atlas uses ClickHouse native protocol DSN format.
+  # Explicit username/password query params prevent missing-login parsing issues.
+  url: 'clickhouse://clickhouse-log-c-clickhouse.clickhouse.svc.cluster.local:9000/default?username={{ .Values.clickhouse.auth.username | default "default" | urlquery }}&password={{ .Values.clickhouse.auth.password | default "" | urlquery }}&secure=false'
+  
+  schema:
+    sql: |
+      CREATE DATABASE IF NOT EXISTS logs ENGINE = Atomic;
+      
+      CREATE TABLE IF NOT EXISTS logs.event_logs_local
+      (
+          timestamp     DateTime64(3) DEFAULT now64(3),
+          severity      Int32,
+          severity_text String,
+          body          String,
+          trace_id      String,
+          span_id       String,
+          attributes    Map(String,String),
+          project       String
+      )
+      ENGINE = ReplacingMergeTree()
+      PARTITION BY toYYYYMM(timestamp)
+      ORDER BY (project, timestamp, trace_id)
+      TTL toDateTime(timestamp) + INTERVAL 7 DAY DELETE;
+      
+      CREATE TABLE IF NOT EXISTS logs.event_logs
+      AS logs.event_logs_local
+      ENGINE = Distributed('main', 'logs', 'event_logs_local', rand());
+
+  policy:
+    diff:
+      skip:
+        add_schema: false
+{{- end }}
+
+
+
+
+
+
+
+
+

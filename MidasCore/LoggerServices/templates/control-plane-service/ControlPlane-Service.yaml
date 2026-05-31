@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Values.ControlPlaneService.DNS}}
+spec:
+  selector:
+    app: {{.Values.ControlPlaneService.DNS}}
+  ports:
+    - protocol: TCP
+      port: {{.Values.ControlPlaneService.RestPort}}
+      targetPort: {{.Values.All.targetPort}}
+      name: http
+  type: LoadBalancer
+  

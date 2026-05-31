@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  labels:
+    app: myapp
+data:
+  # gRPC
+  GRPC_HOST: "0.0.0.0"
+  GRPC_PORT: "{{.Values.GatewayStream.gRPCPort}}"
+
+  # REST
+  REST_HOST: "0.0.0.0"
+  REST_PORT: "{{.Values.All.targetPort}}"
+  REST_EVENT_SERVICE_DNS: "http://{{.Values.EventService.DNS}}:{{.Values.EventService.RestPort}}"
+  LLM_MODEL_DNS: "http://{{.Values.LLMBaseGPTService.DNS}}:{{.Values.LLMBaseGPTService.RestPort}}"
+  ANALYSE_SERVICE_DNS: "http://{{.Values.AnalyseService.DNS}}:{{.Values.AnalyseService.RestPort}}"
+  AUTH_SERVICE_DNS: "http://{{.Values.AuthService.DNS}}:{{.Values.AuthService.RestPort}}"
+  GATEWAY_DNS: "http://{{.Values.Gateway.DNS}}:{{.Values.Gateway.RestPort}}"
+  SCALE_SERVICE_DNS: "http://{{.Values.AgentScalerService.DNS}}:{{.Values.AgentScalerService.RestPort}}"
+  CONTROL_PLANE_DNS: "http://{{.Values.ControlPlaneService.DNS}}:{{.Values.ControlPlaneService.RestPort}}"
+  SYS_INFO_SERVICE_DNS: "http://{{.Values.SysInfoService.DNS}}:{{.Values.SysInfoService.RestPort}}"
+  SETTING_SERVICE_DNS: "http://{{.Values.SettingService.DNS}}:{{.Values.SettingService.RestPort}}"
+  ENVOY_GATEWAY_TLS_SECRET_NAME: "{{ .Values.TLS.SecretName | default "log-gateway-tls" }}"
+  GATEWAY_STREAM_DNS: "{{.Values.GatewayStream.DNS}}:{{.Values.GatewayStream.RestPort}}"
+  PROMETHEUS_DNS: "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+  MASTER_NODE_IP: "{{ include "midas.detectHost" . }}:{{.Values.Gateway.RestPort}}"
+  BILLING_DNS: "http://midascore.dev"
+  #FRONTEND
+  FRONTEND: "http://{{ include "midas.detectHost" . }}:{{.Values.Gateway.RestPort}}"
+
+
+  # Kafka
+  KAFKA_HOST: "{{.Values.Kafka.KafkaHost}}-kafka-bootstrap.kafka.svc.cluster.local"
+  KAFKA_PORT: "9092"
+  KAFKA_PARTITION: "1"
+  KAFKA_TOPIC: "logs"
+  KAFKA_ACKS: "1"   # -1=all, 0=fire&forget, 1=leader
+  KAFKA_GROUP_ID: "ev-t"
+
+  # Redis
+  REDIS_HOST: "redis-svc.default.svc.cluster.local"
+  REDIS_PORT: "6379"
+
+  # ClickHouse
+  CH_HOST: "{{.Values.Clickhouse.CHHost}}.clickhouse.svc.cluster.local"
+  CH_PORT: "9000"
+  CH_DATABASE: "default"
+  CH_USER: "default"
+
+  # Логирование
+  LOG_LEVEL: "DEV"
+
+  # Batch settings
+  CH_BATCH_TICK: "500ms"   # Go ParseDuration (например "1s", "500ms")
+
+  #Other
+  MIDAS_VERSION: "{{.Values.Tag}}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+
+  name: app-secrets
+  labels:
+    app: myapp
+type: Opaque
+stringData:
+  PLACEHOLDER: ""
+  CH_PASSWORD: ""
+  GPT_TOKEN: ""

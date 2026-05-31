@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{.Values.EventService.DNS}}
+spec:
+  selector:
+    app: {{.Values.EventService.DNS}}
+  ports:
+    - protocol: TCP
+      port: {{.Values.EventService.RestPort}}
+      targetPort: {{.Values.All.targetPort}}
+      name: http
+  type: LoadBalancer
+  

@@ -16,7 +16,7 @@
 
                   ✧ ✦ ✧   M I D A S C O R E   ✧ ✦ ✧
                      Built for High Load • Forged in Gold
-````
+```
 
 **MidasCore** is a high-performance, self-hosted observability platform designed for modern distributed systems.
 Enterprise-grade logging, monitoring, and AI-powered insights with **zero configuration**.
@@ -134,7 +134,7 @@ The agent:
 
 ### Option B: SDK Integration (recommended for high-load services)
 
-If you’re running a high-load backend and want **direct structured logging** with minimal overhead, use the SDK instead of file-tailing.
+If you're running a high-load backend and want **direct structured logging** with minimal overhead, use the SDK instead of file-tailing.
 
 SDK repo: **[https://github.com/MidasWR/mc-go-writer](https://github.com/MidasWR/mc-go-writer)**
 
@@ -179,10 +179,20 @@ Most common questions (installation, agent, ports, ingestion, troubleshooting):
 
 ---
 
+## Repository Layout
+
+* `Services/` — source code for all microservices
+* `MidasCore/` — Helm charts for Kafka, ClickHouse, and application services
+* `InstallerBuild/` — installer binary sources and deployment scripts
+* `scripts/` — publish helpers for charts and installer releases
+
+Helm deployment details: `MidasCore/README.md`. Installer details: `InstallerBuild/README.md`.
+
+---
+
 ## 📄 License
 
 MidasCore is licensed under the **Business Source License 1.1 (BSL)**.
 Non-commercial and internal use is permitted. Commercial use requires a paid license until the Change Date.
 
 See: **[LICENSE](./LICENSE.md)**
-

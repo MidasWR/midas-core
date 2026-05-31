@@ -1,0 +1,204 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ch-watchdog-sa
+  namespace: clickhouse
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ch-watchdog-role
+  namespace: clickhouse
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["clickhouse.altinity.com"]
+    resources: ["clickhouseinstallations"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ch-watchdog-rb
+  namespace: clickhouse
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ch-watchdog-role
+subjects:
+  - kind: ServiceAccount
+    name: ch-watchdog-sa
+    namespace: clickhouse
+
+---
+# CronJob: runs every 5 minutes.
+# Recovery is staged:
+#   - /ping HTTP check fails           → delete pod immediately (operator recreates it)
+#   - SELECT 1 query fails             → delete pod (CH process alive but not serving)
+#   - Disk usage > 85%                 → log critical warning (manual action needed)
+#   - Disk usage > 95%                 → force TTL merge to reclaim space, then alert
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ch-watchdog
+  namespace: clickhouse
+  labels:
+    app: ch-watchdog
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 180
+      template:
+        spec:
+          serviceAccountName: ch-watchdog-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: watchdog
+              image: bitnami/kubectl:latest
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 64Mi
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  NS="clickhouse"
+                  CH_NAME="{{ .Values.clickhouse.name }}"
+
+                  log()  { echo "[ch-watchdog] $(date -u +%H:%M:%S) INFO  $*"; }
+                  warn() { echo "[ch-watchdog] $(date -u +%H:%M:%S) WARN  $*"; }
+
+                  issues=0
+
+                  # ── Find the running ClickHouse pod ──────────────────────────
+                  CH_POD=$(kubectl -n "$NS" get pods \
+                    -l "clickhouse.altinity.com/chi=${CH_NAME}" \
+                    --field-selector=status.phase=Running \
+                    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+                  if [[ -z "$CH_POD" ]]; then
+                    warn "No running ClickHouse pod found in namespace $NS"
+                    # Check if it's stuck in a non-Running phase
+                    STUCK_POD=$(kubectl -n "$NS" get pods \
+                      -l "clickhouse.altinity.com/chi=${CH_NAME}" \
+                      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+                    if [[ -n "$STUCK_POD" ]]; then
+                      PHASE=$(kubectl -n "$NS" get pod "$STUCK_POD" \
+                        -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+                      warn "Pod $STUCK_POD is in phase $PHASE — deleting for reschedule"
+                      kubectl -n "$NS" delete pod "$STUCK_POD" --grace-period=0 2>/dev/null || true
+                      issues=$((issues + 1))
+                    fi
+                    exit $((issues > 0 ? 1 : 0))
+                  fi
+
+                  log "Found ClickHouse pod: $CH_POD"
+
+                  # ── STEP 1: OOMKill check ────────────────────────────────────
+                  OOM_REASON=$(kubectl -n "$NS" get pod "$CH_POD" \
+                    -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' \
+                    2>/dev/null || echo "")
+                  if [[ "$OOM_REASON" == "OOMKilled" ]]; then
+                    warn "ClickHouse pod $CH_POD was OOMKilled — deleting for reschedule"
+                    kubectl -n "$NS" delete pod "$CH_POD" --grace-period=0 2>/dev/null || true
+                    issues=$((issues + 1))
+                    exit 1
+                  fi
+
+                  # ── STEP 2: /ping HTTP health check ──────────────────────────
+                  log "Running /ping check on $CH_POD..."
+                  PING_OK=$(kubectl -n "$NS" exec "$CH_POD" -- \
+                    wget -qO- "http://127.0.0.1:8123/ping" 2>/dev/null || echo "FAIL")
+
+                  if [[ "$PING_OK" != "Ok." ]]; then
+                    warn "/ping returned '$PING_OK' — ClickHouse is not healthy"
+                    warn "Deleting pod $CH_POD — operator will recreate it"
+                    kubectl -n "$NS" delete pod "$CH_POD" --grace-period=30 2>/dev/null || true
+                    issues=$((issues + 1))
+                    exit 1
+                  fi
+                  log "/ping: OK"
+
+                  # ── STEP 3: Functional query check ────────────────────────────
+                  # /ping can return Ok. while the server is in a degraded state
+                  # (e.g., replication lag, zombie merges). A real SELECT 1 confirms
+                  # the query engine is functional.
+                  log "Running SELECT 1 query check..."
+                  QUERY_RESULT=$(kubectl -n "$NS" exec "$CH_POD" -- \
+                    clickhouse-client --query "SELECT 1" 2>/dev/null || echo "FAIL")
+
+                  if [[ "$QUERY_RESULT" != "1" ]]; then
+                    warn "SELECT 1 returned '$QUERY_RESULT' — query engine is unresponsive"
+                    kubectl -n "$NS" delete pod "$CH_POD" --grace-period=30 2>/dev/null || true
+                    issues=$((issues + 1))
+                    exit 1
+                  fi
+                  log "SELECT 1: OK"
+
+                  # ── STEP 4: Disk usage check ──────────────────────────────────
+                  log "Checking disk usage..."
+                  DISK_INFO=$(kubectl -n "$NS" exec "$CH_POD" -- \
+                    clickhouse-client --query \
+                    "SELECT name, toUInt64(free_space / 1024 / 1024) AS free_mb, toUInt64(total_space / 1024 / 1024) AS total_mb FROM system.disks" \
+                    2>/dev/null || echo "FAIL")
+
+                  if [[ "$DISK_INFO" == "FAIL" ]]; then
+                    warn "Could not query system.disks"
+                  else
+                    while IFS=$'\t' read -r disk_name free_mb total_mb; do
+                      [[ -z "$disk_name" || -z "$total_mb" || "$total_mb" -eq 0 ]] && continue
+                      USED_PCT=$(( (total_mb - free_mb) * 100 / total_mb ))
+                      log "Disk [$disk_name]: ${USED_PCT}% used (${free_mb}MB free of ${total_mb}MB)"
+
+                      if [[ $USED_PCT -ge 95 ]]; then
+                        warn "CRITICAL: Disk $disk_name is ${USED_PCT}% full — forcing TTL merges"
+                        kubectl -n "$NS" exec "$CH_POD" -- \
+                          clickhouse-client --query \
+                          "OPTIMIZE TABLE logs.event_logs_local FINAL" \
+                          2>/dev/null || true
+                        issues=$((issues + 1))
+                      elif [[ $USED_PCT -ge 85 ]]; then
+                        warn "WARNING: Disk $disk_name is ${USED_PCT}% full — TTL cleanup may be needed soon"
+                        issues=$((issues + 1))
+                      fi
+                    done <<< "$DISK_INFO"
+                  fi
+
+                  # ── STEP 5: Check for stalled mutations / long-running merges ─
+                  log "Checking for stalled merges..."
+                  LONG_MERGES=$(kubectl -n "$NS" exec "$CH_POD" -- \
+                    clickhouse-client --query \
+                    "SELECT count() FROM system.merges WHERE elapsed > 600" \
+                    2>/dev/null || echo "0")
+
+                  if [[ "$LONG_MERGES" =~ ^[0-9]+$ ]] && [[ "$LONG_MERGES" -gt 3 ]]; then
+                    warn "There are $LONG_MERGES merges running for >10 minutes — possible disk pressure"
+                    issues=$((issues + 1))
+                  else
+                    log "Active long merges: ${LONG_MERGES:-0}"
+                  fi
+
+                  # ── Summary ───────────────────────────────────────────────────
+                  if [[ $issues -gt 0 ]]; then
+                    warn "ClickHouse watchdog completed with $issues issue(s)."
+                    exit 1
+                  else
+                    log "ClickHouse watchdog: all checks passed."
+                  fi

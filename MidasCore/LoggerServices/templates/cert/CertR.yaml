@@ -1,0 +1,11 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: log-gateway-cert
+spec:
+  secretName: {{ .Values.TLS.SecretName | default "log-gateway-tls" }}
+  dnsNames:
+    - "{{ include "midas.detectHost" . }}"
+  issuerRef:
+    name: ca-issuer
+    kind: ClusterIssuer

@@ -1,0 +1,24 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: clickhouse-main-vpa
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: chi-{{ .Values.clickhouse.name }}-main-0-0
+  updatePolicy:
+    updateMode: "Recreate"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        controlledResources: ["cpu", "memory"]
+        controlledValues: RequestsOnly
+        minAllowed:
+          cpu: "500m"
+          memory: "512Mi"
+        maxAllowed:
+          # Cap at 50 % of a typical 4-vCPU/8 GB single-node cluster so
+          # ClickHouse cannot starve Kafka, Prometheus, and the midas services.
+          cpu: "2"
+          memory: "3Gi"

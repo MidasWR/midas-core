@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.ControlPlaneService.DNS }}
+  labels:
+    app: {{ .Values.ControlPlaneService.DNS }}
+spec:
+  replicas: {{ .Values.ControlPlaneService.DeploymentReplicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.ControlPlaneService.DNS }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.ControlPlaneService.DNS }}
+    spec:
+      serviceAccountName: control-plane-sa
+      containers:
+        - name: cp
+          image: "{{ .Values.ControlPlaneService.Image }}:{{.Values.Tag}}"
+          imagePullPolicy: {{ .Values.Policy.ImagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.ControlPlaneService.RestPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            failureThreshold: 30
+            periodSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 2
+        {{- if .Values.ControlPlaneService.persistence.enabled }}
+          volumeMounts:
+            - name: cp-db
+              mountPath: {{ .Values.ControlPlaneService.persistence.mountPath }}
+        {{- end }}
+
+      restartPolicy: {{ .Values.Policy.RestartPolicy }}
+
+      {{- if .Values.ControlPlaneService.persistence.enabled }}
+      volumes:
+        - name: cp-db
+          persistentVolumeClaim:
+            claimName: {{ if .Values.ControlPlaneService.persistence.existingClaim }}{{ .Values.ControlPlaneService.persistence.existingClaim }}{{ else }}{{ .Values.ControlPlaneService.DNS }}-db{{ end }}
+      {{- end }}
+
+      securityContext:
+        runAsNonRoot: false

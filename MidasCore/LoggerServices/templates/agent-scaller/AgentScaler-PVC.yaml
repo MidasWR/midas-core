@@ -1,0 +1,24 @@
+{{- if .Values.AgentScalerService.persistence.enabled }}
+{{- if not .Values.AgentScalerService.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{.Values.AgentScalerService.DNS}}-db
+  annotations:
+    "helm.sh/resource-policy": keep
+  labels:
+    app.kubernetes.io/name: {{.Values.AgentScalerService.DNS }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  accessModes:
+  {{- range .Values.AgentScalerService.persistence.accessModes }}
+    - {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.AgentScalerService.persistence.size | quote }}
+  {{- if .Values.AgentScalerService.persistence.storageClassName }}
+  storageClassName: {{ .Values.AgentScalerService.persistence.storageClassName | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

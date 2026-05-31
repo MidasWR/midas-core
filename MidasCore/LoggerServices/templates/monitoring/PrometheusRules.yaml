@@ -1,0 +1,454 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: midas-core-alerts
+  namespace: monitoring
+  labels:
+    release: kube-prom
+    app: midas-core
+spec:
+  groups:
+
+    # ================================================================
+    # Service availability — namespace: midas
+    # ================================================================
+    - name: midas.availability
+      interval: 30s
+      rules:
+
+        - alert: MidasServiceCrashLoopBackOff
+          expr: |
+            kube_pod_container_status_waiting_reason{
+              reason="CrashLoopBackOff",
+              namespace="midas"
+            } > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Container {{ "{{" }} $labels.container {{ "}}" }} in CrashLoopBackOff
+            description: |
+              Pod {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.pod {{ "}}" }} — container {{ "{{" }} $labels.container {{ "}}" }}
+              has been in CrashLoopBackOff for more than 2 minutes.
+              Check logs: kubectl -n {{ "{{" }} $labels.namespace {{ "}}" }} logs {{ "{{" }} $labels.pod {{ "}}" }} -c {{ "{{" }} $labels.container {{ "}}" }} --previous
+
+        - alert: MidasServiceOOMKilled
+          expr: |
+            (
+              kube_pod_container_status_last_terminated_reason{
+                reason="OOMKilled",
+                namespace="midas"
+              } == 1
+            )
+            and
+            (
+              (time() - kube_pod_container_status_last_terminated_exitcode * 0 +
+               kube_pod_container_status_last_terminated_finished_at) < 900
+            )
+          for: 0m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Container {{ "{{" }} $labels.container {{ "}}" }} was OOMKilled
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in pod {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.pod {{ "}}" }}
+              was killed due to OOM in the last 15 minutes.
+              Action: increase memory limit or investigate memory leak.
+
+        - alert: MidasServicePodRestartingFrequently
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="midas"
+            }[15m]) > 3
+          for: 0m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Container {{ "{{" }} $labels.container {{ "}}" }} restarting frequently
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in pod {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.pod {{ "}}" }}
+              restarted {{ "{{" }} $value | printf "%.0f" {{ "}}" }} times in the last 15 minutes.
+
+        - alert: MidasServiceNotReady
+          expr: |
+            kube_pod_status_ready{
+              condition="false",
+              namespace="midas"
+            } == 1
+          for: 5m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Pod {{ "{{" }} $labels.pod {{ "}}" }} is not ready
+            description: |
+              Pod {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.pod {{ "}}" }} has been in non-ready state
+              for more than 5 minutes.
+
+        - alert: MidasDeploymentUnavailable
+          expr: |
+            kube_deployment_status_replicas_available{namespace="midas"}
+            /
+            kube_deployment_spec_replicas{namespace="midas"}
+            < 1
+          for: 5m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Deployment {{ "{{" }} $labels.deployment {{ "}}" }} has no available replicas
+            description: |
+              Deployment {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.deployment {{ "}}" }} has 0 available
+              replicas for more than 5 minutes.
+
+    # ================================================================
+    # Autoscaling pressure
+    # ================================================================
+    - name: midas.autoscaling
+      interval: 60s
+      rules:
+
+        - alert: MidasHPAAtMaxReplicas
+          expr: |
+            kube_horizontalpodautoscaler_status_current_replicas{namespace="midas"}
+            >=
+            kube_horizontalpodautoscaler_spec_max_replicas{namespace="midas"}
+          for: 10m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              HPA {{ "{{" }} $labels.horizontalpodautoscaler {{ "}}" }} is at max replicas
+            description: |
+              HPA {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.horizontalpodautoscaler {{ "}}" }} has been
+              at its maximum replica count for 10+ minutes — consider raising MaxReplicas
+              or investigating high load.
+
+        - alert: MidasHPAScalingImpaired
+          expr: |
+            kube_horizontalpodautoscaler_status_condition{
+              namespace="midas",
+              condition="ScalingActive",
+              status="false"
+            } == 1
+          for: 5m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              HPA {{ "{{" }} $labels.horizontalpodautoscaler {{ "}}" }} scaling is impaired
+            description: |
+              HPA {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.horizontalpodautoscaler {{ "}}" }} cannot scale
+              (ScalingActive=false) for 5+ minutes.
+
+    # ================================================================
+    # Resource saturation — namespace: midas
+    # ================================================================
+    - name: midas.resources
+      interval: 60s
+      rules:
+
+        - alert: MidasContainerHighMemoryUsage
+          expr: |
+            (
+              container_memory_working_set_bytes{
+                namespace="midas",
+                container!="",
+                container!="POD"
+              }
+              /
+              kube_pod_container_resource_limits{
+                namespace="midas",
+                resource="memory"
+              }
+            ) > 0.90
+          for: 5m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Container {{ "{{" }} $labels.container {{ "}}" }} memory > 90% of limit
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.pod {{ "}}" }}
+              is using {{ "{{" }} $value | humanizePercentage {{ "}}" }} of its memory limit.
+              Risk of OOMKill is high.
+
+        - alert: MidasContainerHighCPUThrottle
+          expr: |
+            rate(container_cpu_cfs_throttled_seconds_total{
+              namespace="midas",
+              container!="",
+              container!="POD"
+            }[5m])
+            /
+            rate(container_cpu_cfs_periods_total{
+              namespace="midas",
+              container!="",
+              container!="POD"
+            }[5m])
+            > 0.80
+          for: 10m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Container {{ "{{" }} $labels.container {{ "}}" }} CPU throttled > 80%
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.pod {{ "}}" }}
+              is CPU-throttled {{ "{{" }} $value | humanizePercentage {{ "}}" }} of the time over last 10 minutes.
+              Consider raising CPU limit or reducing work.
+
+    # ================================================================
+    # ClickHouse — namespace: clickhouse
+    # ================================================================
+    - name: clickhouse.availability
+      interval: 30s
+      rules:
+
+        - alert: ClickHouseDown
+          expr: |
+            kube_pod_status_ready{
+              condition="false",
+              namespace="clickhouse"
+            } == 1
+          for: 3m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              ClickHouse pod {{ "{{" }} $labels.pod {{ "}}" }} is not ready
+            description: |
+              ClickHouse pod {{ "{{" }} $labels.pod {{ "}}" }} in namespace clickhouse has been
+              not ready for 3+ minutes. Log ingestion pipeline is broken.
+              Check: kubectl -n clickhouse describe pod {{ "{{" }} $labels.pod {{ "}}" }}
+
+        - alert: ClickHouseCrashLoopBackOff
+          expr: |
+            kube_pod_container_status_waiting_reason{
+              reason="CrashLoopBackOff",
+              namespace="clickhouse"
+            } > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: ClickHouse container in CrashLoopBackOff
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in pod {{ "{{" }} $labels.pod {{ "}}" }} (clickhouse namespace)
+              is in CrashLoopBackOff. All event ingestion is impaired.
+
+        - alert: ClickHouseOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{
+              reason="OOMKilled",
+              namespace="clickhouse"
+            } == 1
+          for: 0m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: ClickHouse was OOMKilled
+            description: |
+              ClickHouse container was killed due to OOM. Increase memory limits
+              in MidasCore/ClickhouseAltiniti/values.yaml.
+
+        - alert: ClickHouseHighMemoryUsage
+          expr: |
+            (
+              container_memory_working_set_bytes{
+                namespace="clickhouse",
+                container!="",
+                container!="POD"
+              }
+              /
+              kube_pod_container_resource_limits{
+                namespace="clickhouse",
+                resource="memory"
+              }
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: ClickHouse memory usage > 85% of limit
+            description: |
+              ClickHouse is using {{ "{{" }} $value | humanizePercentage {{ "}}" }} of its memory limit.
+              Risk of OOMKill. Consider increasing the limit or enabling VPA.
+
+    # ================================================================
+    # Kafka / Strimzi — namespace: kafka
+    # ================================================================
+    - name: kafka.availability
+      interval: 30s
+      rules:
+
+        - alert: StrimziOperatorDown
+          expr: |
+            kube_deployment_status_replicas_available{
+              namespace="kafka",
+              deployment="strimzi-cluster-operator"
+            } < 1
+          for: 3m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: Strimzi Kafka Operator is down
+            description: |
+              The Strimzi cluster operator deployment in namespace kafka has 0 available
+              replicas for 3+ minutes. Kafka cluster will not reconcile — brokers/topics
+              created or modified will not be applied.
+              Check: kubectl -n kafka describe deployment strimzi-cluster-operator
+              Recovery: kubectl -n kafka rollout restart deployment/strimzi-cluster-operator
+
+        - alert: StrimziOperatorCrashLoopBackOff
+          expr: |
+            kube_pod_container_status_waiting_reason{
+              reason="CrashLoopBackOff",
+              namespace="kafka"
+            } > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: Strimzi component in CrashLoopBackOff
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in pod {{ "{{" }} $labels.pod {{ "}}" }} (kafka namespace)
+              is in CrashLoopBackOff. Strimzi operator or Kafka broker may be unstable.
+
+        - alert: StrimziOperatorOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{
+              reason="OOMKilled",
+              namespace="kafka"
+            } == 1
+          for: 0m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Kafka namespace pod OOMKilled — {{ "{{" }} $labels.pod {{ "}}" }}
+            description: |
+              Pod {{ "{{" }} $labels.pod {{ "}}" }} (container {{ "{{" }} $labels.container {{ "}}" }}) in namespace kafka
+              was OOMKilled. This is the primary cause of silent Strimzi operator outages.
+              Action: increase operator/broker memory limits.
+              For operator: kubectl -n kafka patch deployment strimzi-cluster-operator
+              --type=merge -p '{"spec":{"template":{"spec":{"containers":[{"name":"strimzi-cluster-operator","resources":{"limits":{"memory":"1Gi"}}}]}}}}'
+
+        - alert: KafkaBrokerNotReady
+          expr: |
+            kube_pod_status_ready{
+              condition="false",
+              namespace="kafka",
+              pod=~".*broker.*"
+            } == 1
+          for: 3m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: >-
+              Kafka broker pod {{ "{{" }} $labels.pod {{ "}}" }} is not ready
+            description: |
+              Kafka broker {{ "{{" }} $labels.pod {{ "}}" }} has been not-ready for 3+ minutes.
+              Log ingestion via GatewayStream will stall until broker recovers.
+              Check: kubectl -n kafka describe pod {{ "{{" }} $labels.pod {{ "}}" }}
+
+        - alert: KafkaBrokerHighMemoryUsage
+          expr: |
+            (
+              container_memory_working_set_bytes{
+                namespace="kafka",
+                container!="",
+                container!="POD"
+              }
+              /
+              kube_pod_container_resource_limits{
+                namespace="kafka",
+                resource="memory"
+              }
+            ) > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Kafka component {{ "{{" }} $labels.container {{ "}}" }} memory > 85% of limit
+            description: |
+              Container {{ "{{" }} $labels.container {{ "}}" }} in kafka namespace is at
+              {{ "{{" }} $value | humanizePercentage {{ "}}" }} of its memory limit.
+              Consider increasing broker JVM heap or pod memory limit.
+
+        - alert: KafkaPodFrequentRestarts
+          expr: |
+            increase(kube_pod_container_status_restarts_total{
+              namespace="kafka"
+            }[15m]) > 2
+          for: 0m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: >-
+              Kafka pod {{ "{{" }} $labels.pod {{ "}}" }} restarting frequently
+            description: |
+              Pod {{ "{{" }} $labels.pod {{ "}}" }} in namespace kafka restarted
+              {{ "{{" }} $value | printf "%.0f" {{ "}}" }} times in the last 15 minutes.
+
+        - alert: KafkaClusterNotReady
+          expr: |
+            kube_customresource_status_condition{
+              customresource_kind="Kafka",
+              condition="Ready",
+              namespace="kafka",
+              status="False"
+            } == 1
+          for: 5m
+          labels:
+            severity: critical
+            team: midas
+          annotations:
+            summary: Kafka cluster is not Ready
+            description: |
+              The Strimzi Kafka cluster CRD has Ready=False for 5+ minutes.
+              This causes the entity-operator to enter an AdminClient rebootstrapping
+              loop (id=null) — topic and user operators stop working.
+              The kafka-watchdog CronJob will attempt staged recovery automatically.
+              Manual check: kubectl -n kafka get kafka -o wide
+              Manual recovery: kubectl -n kafka rollout restart deployment/<cluster>-entity-operator
+
+        - alert: KafkaWatchdogFailing
+          expr: |
+            kube_job_failed{
+              namespace="kafka",
+              job_name=~"kafka-watchdog.*"
+            } > 0
+          for: 0m
+          labels:
+            severity: warning
+            team: midas
+          annotations:
+            summary: Kafka watchdog job detected issues
+            description: |
+              The kafka-watchdog CronJob has reported failures (exit code 1).
+              This means one or more recovery actions were triggered — check the job logs:
+              kubectl -n kafka logs -l job-name=<latest-kafka-watchdog-job>

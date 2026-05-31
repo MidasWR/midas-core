@@ -1,0 +1,128 @@
+Policy:
+  RestartPolicy: Always
+  ImagePullPolicy: Always
+TLS:
+  Namespace: cert-manager
+  Cert:
+    Namespace: midas
+  SecretName: "log-gateway-tls"
+  ingressClass: "ingress-nginx"
+Tag: ""
+ExternalIP: ""
+All:
+  targetPort: 8060
+Frontend:
+  DNS: log-frontend
+  RestPort: 1573
+  NodePort: 30070
+  Image: docker.io/midaswr/logger_frontend
+  DeploymentReplicas: 1
+Gateway:
+   RestPort: 8060
+   NodeGRPCPort: 30033
+   NodePort: 30031
+   DNS: log-gateway-src
+   GatewayClassName: eg
+   GRPCProtectionEnabled: false
+   Image: docker.io/midaswr/gateway
+   DeploymentReplicas: 1
+   CpuAverage: 70
+   MinReplicas: 1
+   MaxReplicas: 50
+   MemoryAverage: 70
+GatewayStream:
+   RestPort: 8070
+   gRPCPort: 50051
+   DNS: log-gateway-stream
+   Image: docker.io/midaswr/gateway_stream
+   DeploymentReplicas: 1
+   CpuAverage: 70
+   MinReplicas: 1
+   MaxReplicas: 50
+   MemoryAverage: 70
+EventService:
+  RestPort: 8061
+  Image: docker.io/midaswr/event_service
+  DNS: log-event-src
+  DeploymentReplicas: 1
+  CpuAverage: 70
+  MinReplicas: 1
+  MaxReplicas: 50
+  MemoryAverage: 70
+AnalyseService:
+  RestPort: 8062
+  Image: docker.io/midaswr/log_analyse_service
+  DNS: log-analyse-src
+  DeploymentReplicas: 1
+  CpuAverage: 70
+  MinReplicas: 1
+  MaxReplicas: 15
+LLMBaseGPTService:
+  RestPort: 8063
+  Image: docker.io/midaswr/llm_base_gpt
+  DNS: log-llm-gpt-src
+  DeploymentReplicas: 1
+  CpuAverage: 70
+  MinReplicas: 1
+  MaxReplicas: 3
+AuthService:
+  RestPort: 8064
+  Image: docker.io/midaswr/auth_service
+  DNS: log-auth-src
+  DeploymentReplicas: 1
+  MinReplicas: 1
+  MaxReplicas: 3
+  persistence:
+    enabled: true
+    existingClaim: ""
+    size: 20Mi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    mountPath: /var/lib/auth
+AgentScalerService:
+  RestPort: 8065
+  Image: docker.io/midaswr/agent_scaler_service
+  DNS: log-agent-scaler-src
+  DeploymentReplicas: 1
+  MinReplicas: 1
+  MaxReplicas: 3
+  persistence:
+    enabled: true
+    existingClaim: ""
+    size: 20Mi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    mountPath: /var/lib/agent
+  k3sToken:
+      enabled: true
+      hostPath: /var/lib/rancher
+      mountPath: /host/rancher
+ControlPlaneService:
+  RestPort: 8066
+  Image: docker.io/midaswr/control_plane_service
+  DNS: log-control-plane-src
+  DeploymentReplicas: 1
+  persistence:
+    enabled: true
+    existingClaim: ""
+    size: 40Mi
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    mountPath: /var/lib/cp
+SysInfoService:
+  RestPort: 8067
+  Image: docker.io/midaswr/sys_info_service
+  DNS: log-sys-info-src
+  DeploymentReplicas: 1
+SettingService:
+  RestPort: 8068
+  Image: docker.io/midaswr/setting_service
+  DNS: log-setting-src
+  DeploymentReplicas: 1
+Clickhouse:
+  CHHost: clickhouse-log-c-clickhouse
+Kafka:
+  KafkaHost: log-k-cluster

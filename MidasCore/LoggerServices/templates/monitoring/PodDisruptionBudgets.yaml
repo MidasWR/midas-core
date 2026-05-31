@@ -1,0 +1,78 @@
+{{- /*
+  PodDisruptionBudgets for stateful/critical services.
+  minAvailable: 1 ensures at least one replica stays up during voluntary disruptions
+  (node drains, rolling upgrades, etc.).
+  Applied only to services where downtime has a direct user-facing impact.
+*/ -}}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-gateway
+  namespace: midas
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.Gateway.DNS }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-gateway-stream
+  namespace: midas
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.GatewayStream.DNS }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-event-service
+  namespace: midas
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.EventService.DNS }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-auth-service
+  namespace: midas
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.AuthService.DNS }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-analyse-service
+  namespace: midas
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.AnalyseService.DNS }}
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pdb-control-plane
+  namespace: midas
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.ControlPlaneService.DNS }}

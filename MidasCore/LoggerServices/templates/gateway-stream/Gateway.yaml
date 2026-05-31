@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Values.GatewayStream.DNS}}
+  labels:
+    app: {{.Values.GatewayStream.DNS}}
+spec:
+  replicas: {{.Values.GatewayStream.DeploymentReplicas}}
+  selector:
+    matchLabels:
+      app: {{.Values.GatewayStream.DNS}}
+  template:
+    metadata:
+      labels:
+        app: {{.Values.GatewayStream.DNS}}
+    spec:
+      containers:
+        - name: gateway-stream
+          image:  "{{.Values.GatewayStream.Image}}:{{.Values.Tag}}"
+          imagePullPolicy: {{.Values.Policy.ImagePullPolicy}}
+          ports:
+            - containerPort: {{.Values.All.targetPort}}
+              protocol: TCP
+            - containerPort: {{.Values.GatewayStream.gRPCPort}}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: GOGC
+              value: "100"
+            - name: GODEBUG
+              value: "madvdontneed=1"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          startupProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            failureThreshold: 30
+            periodSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 2
+
+      restartPolicy: {{.Values.Policy.RestartPolicy}}
+      securityContext:
+        runAsNonRoot: false
+
+

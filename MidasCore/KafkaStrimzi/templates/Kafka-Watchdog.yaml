@@ -1,0 +1,205 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka-watchdog-sa
+  namespace: {{ .Values.namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kafka-watchdog-role
+  namespace: {{ .Values.namespace }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: ["kafka.strimzi.io"]
+    resources: ["kafkas", "kafkanodepools"]
+    verbs: ["get", "list", "patch", "update"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kafka-watchdog-rb
+  namespace: {{ .Values.namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kafka-watchdog-role
+subjects:
+  - kind: ServiceAccount
+    name: kafka-watchdog-sa
+    namespace: {{ .Values.namespace }}
+
+---
+# CronJob runs every 3 minutes.
+# Recovery is staged by how long Kafka has been in a broken state:
+#   > 5 min  → restart entity-operator (fixes AdminClient rebootstrap loop)
+#   > 15 min → rolling restart of broker + controller node pools via Strimzi annotation
+#   > 30 min → hard delete of stuck pods so Kubernetes reschedules them
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kafka-watchdog
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: kafka-watchdog
+spec:
+  schedule: "*/3 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 150
+      template:
+        spec:
+          serviceAccountName: kafka-watchdog-sa
+          restartPolicy: OnFailure
+          containers:
+            - name: watchdog
+              image: bitnami/kubectl:latest
+              imagePullPolicy: IfNotPresent
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 64Mi
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -euo pipefail
+                  NS="{{ .Values.namespace }}"
+                  CLUSTER="{{ .Values.cluster.name }}"
+                  BROKER_POOL="{{ .Values.broker.name }}"
+                  CONTROLLER_POOL="{{ .Values.controller.name }}"
+                  OPERATOR_DEPLOY="strimzi-cluster-operator"
+                  ENTITY_OP_DEPLOY="${CLUSTER}-entity-operator"
+
+                  log()  { echo "[watchdog] $(date -u +%H:%M:%S) INFO  $*"; }
+                  warn() { echo "[watchdog] $(date -u +%H:%M:%S) WARN  $*"; }
+                  fail() { echo "[watchdog] $(date -u +%H:%M:%S) ERROR $*"; exit 1; }
+
+                  issues=0
+
+                  # ── STEP 1: Strimzi operator health ──────────────────────────
+                  log "Checking Strimzi cluster operator..."
+                  OPERATOR_READY=$(kubectl -n "$NS" get deployment "$OPERATOR_DEPLOY" \
+                    -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+                  OPERATOR_READY="${OPERATOR_READY:-0}"
+
+                  if [[ "$OPERATOR_READY" -lt 1 ]]; then
+                    warn "Strimzi operator has 0 ready replicas — restarting"
+                    kubectl -n "$NS" rollout restart "deployment/$OPERATOR_DEPLOY" 2>/dev/null || true
+                    issues=$((issues + 1))
+                  else
+                    log "Strimzi operator: OK ($OPERATOR_READY ready)"
+                  fi
+
+                  # ── STEP 2: OOMKilled pods — reschedule immediately ───────────
+                  log "Scanning for OOMKilled pods..."
+                  while IFS= read -r pod; do
+                    [[ -z "$pod" ]] && continue
+                    reason=$(kubectl -n "$NS" get pod "$pod" \
+                      -o jsonpath='{.status.containerStatuses[0].lastState.terminated.reason}' \
+                      2>/dev/null || echo "")
+                    if [[ "$reason" == "OOMKilled" ]]; then
+                      warn "Pod $pod was OOMKilled — deleting for reschedule"
+                      kubectl -n "$NS" delete pod "$pod" --grace-period=0 2>/dev/null || true
+                      issues=$((issues + 1))
+                    fi
+                  done < <(kubectl -n "$NS" get pods \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+
+                  # ── STEP 3: Persistent CrashLoop — delete after 5 restarts ───
+                  log "Scanning for CrashLoop pods..."
+                  while IFS= read -r line; do
+                    [[ -z "$line" ]] && continue
+                    pod_name=$(awk '{print $1}' <<< "$line")
+                    restarts=$(awk '{print $2}' <<< "$line")
+                    if [[ "$restarts" -ge 5 ]]; then
+                      warn "Pod $pod_name has $restarts restarts — deleting"
+                      kubectl -n "$NS" delete pod "$pod_name" --grace-period=0 2>/dev/null || true
+                      issues=$((issues + 1))
+                    fi
+                  done < <(kubectl -n "$NS" get pods \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.containerStatuses[*]}{.restartCount}{end}{"\n"}{end}' \
+                    2>/dev/null || true)
+
+                  # ── STEP 4: Kafka cluster Ready status + staged recovery ──────
+                  # This catches the "entity-operator rebootstrapping / id=null" scenario:
+                  # ephemeral storage wipes KRaft metadata on restart → cluster ID lost →
+                  # entity operator loops in AdminClient until controllers re-elect leader.
+                  log "Checking Kafka cluster Ready condition..."
+                  KAFKA_READY=$(kubectl -n "$NS" get kafka "$CLUSTER" \
+                    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' \
+                    2>/dev/null || echo "Unknown")
+
+                  if [[ "$KAFKA_READY" != "True" ]]; then
+                    warn "Kafka cluster $CLUSTER is NOT Ready (status=$KAFKA_READY)"
+
+                    # Determine how long it has been not-ready
+                    LAST_TRANSITION=$(kubectl -n "$NS" get kafka "$CLUSTER" \
+                      -o jsonpath='{.status.conditions[?(@.type=="Ready")].lastTransitionTime}' \
+                      2>/dev/null || echo "")
+
+                    NOT_READY_SECS=0
+                    if [[ -n "$LAST_TRANSITION" ]]; then
+                      NOW_EPOCH=$(date +%s)
+                      THEN_EPOCH=$(date -d "$LAST_TRANSITION" +%s 2>/dev/null || echo "$NOW_EPOCH")
+                      NOT_READY_SECS=$((NOW_EPOCH - THEN_EPOCH))
+                    fi
+
+                    warn "Kafka has been not-ready for ${NOT_READY_SECS}s"
+
+                    if [[ $NOT_READY_SECS -ge 300 ]]; then
+                      # ≥5 min: restart entity-operator — fixes the AdminClient
+                      # rebootstrap loop where id=null (cluster not yet initialized).
+                      # The entity-operator will reconnect once controllers elect a leader.
+                      warn "≥5 min not ready — restarting entity-operator"
+                      kubectl -n "$NS" rollout restart "deployment/$ENTITY_OP_DEPLOY" \
+                        2>/dev/null || true
+                      issues=$((issues + 1))
+                    fi
+
+                    if [[ $NOT_READY_SECS -ge 900 ]]; then
+                      # ≥15 min: trigger Strimzi rolling restart of node pools via annotation.
+                      # Strimzi performs the restart in a safe rolling sequence.
+                      warn "≥15 min not ready — triggering rolling restart of broker pool"
+                      kubectl -n "$NS" annotate kafkanodepool "$BROKER_POOL" \
+                        strimzi.io/manual-rolling-update="$(date +%s)" --overwrite \
+                        2>/dev/null || true
+                      issues=$((issues + 1))
+                    fi
+
+                    if [[ $NOT_READY_SECS -ge 1800 ]]; then
+                      # ≥30 min: rolling restart of controller pool.
+                      # Done last — restarting controllers is more disruptive since
+                      # it causes quorum re-election.
+                      warn "≥30 min not ready — triggering rolling restart of controller pool"
+                      kubectl -n "$NS" annotate kafkanodepool "$CONTROLLER_POOL" \
+                        strimzi.io/manual-rolling-update="$(date +%s)" --overwrite \
+                        2>/dev/null || true
+                      issues=$((issues + 1))
+                    fi
+                  else
+                    log "Kafka cluster $CLUSTER: Ready=True — all checks passed"
+                  fi
+
+                  # ── STEP 5: Summary ───────────────────────────────────────────
+                  if [[ $issues -gt 0 ]]; then
+                    warn "Watchdog completed with $issues issue(s) detected and recovery attempted."
+                    # Non-zero exit → kube_job_failed metric rises → Prometheus can alert.
+                    exit 1
+                  else
+                    log "Watchdog completed — no issues detected."
+                  fi

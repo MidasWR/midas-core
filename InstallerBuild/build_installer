@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Define variables for easy configuration
+OUTPUT_BIN="installer"
+BUILD_TARGET="."
+GARBLE_PKG="mvdan.cc/garble@latest"
+
+# Version to embed into the installer binary
+TAG="${TAG:-test}"                 # e.g. TAG=v1.0.0
+BUILD_TAG="$TAG"
+if [[ "$BUILD_TAG" == "test" ]]; then
+  BUILD_TAG="test"
+fi
+
+# IMPORTANT: main.BuildTag must exist in your Go code (package main)
+LDFLAGS="-s -w -X main.BuildTag=${BUILD_TAG}"
+
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$PROJECT_DIR"
+
+echo "🧹 Cleaning up old binaries..."
+rm -f "$OUTPUT_BIN"
+
+echo "🩹 Adding .keep files to empty directories (for embed)..."
+find . -type d -empty -exec touch {}/.keep \;
+
+cmd_exists() { command -v "$1" >/dev/null 2>&1; }
+
+build_with_garble() {
+  echo "🔒 Attempting obfuscated build with garble... (BuildTag=${BUILD_TAG})"
+  if garble build -o "$OUTPUT_BIN" -ldflags "$LDFLAGS" "$BUILD_TARGET"; then
+    echo "✅ Garble build successful: ./$OUTPUT_BIN"
+    ls -lh "$OUTPUT_BIN"
+    return 0
+  else
+    return 1
+  fi
+}
+
+build_with_go() {
+  echo "🔧 Attempting standard build (no obfuscation)... (BuildTag=${BUILD_TAG})"
+  if go build -o "$OUTPUT_BIN" -ldflags "$LDFLAGS" "$BUILD_TARGET"; then
+    echo "✅ Standard build successful: ./$OUTPUT_BIN"
+    ls -lh "$OUTPUT_BIN"
+    return 0
+  else
+    echo "❌ Standard build failed."
+    return 1
+  fi
+}
+
+if ! cmd_exists go; then
+  echo "❌ Error: 'go' is not installed. Please install Go and try again."
+  exit 1
+fi
+
+GARBLE_SUCCESS=false
+
+if cmd_exists garble; then
+  if build_with_garble; then
+    GARBLE_SUCCESS=true
+  else
+    echo "⚠️  Garble build failed."
+    echo "🔄 Attempting to update garble to latest..."
+    if go install "$GARBLE_PKG"; then
+      echo "🔁 Garble updated. Retrying build..."
+      if build_with_garble; then
+        GARBLE_SUCCESS=true
+      else
+        echo "❌ Build failed even after updating garble."
+      fi
+    else
+      echo "❌ Failed to update garble."
+    fi
+  fi
+else
+  echo "ℹ️  Garble not found. Skipping obfuscation."
+fi
+
+if [ "$GARBLE_SUCCESS" = false ]; then
+  echo "⚠️  Falling back to standard 'go build'..."
+  build_with_go
+fi
+
+exit 0

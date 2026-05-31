@@ -1,0 +1,54 @@
+broker:
+  name: log-k-broker
+  replicas: 1
+storageClass: local-path
+
+cluster:
+  name: log-k-cluster
+  spec:
+    version: 4.2.0
+    port: 9092
+    tls: false
+    type: internal
+  # JVM heap MUST stay below the container memory limit and well below total node RAM.
+  # On a 2GB node: 512m heap + JVM off-heap overhead (~256MB) fits within the 800Mi limit.
+  jvm:
+    xms: 512m
+    xmx: 512m
+  storage:
+    size: 10Gi
+  resources:
+    request:
+      cpu: "200m"
+      memory: "512Mi"
+    limit:
+      cpu: "1000m"
+      memory: "800Mi"
+kraft:
+  status: "enabled"
+controller:
+  name: log-k-controller
+  status: "enabled"
+  replicas: 1
+  # KRaft controller is metadata-only (no user data); 256m heap is sufficient.
+  jvm:
+    xms: 256m
+    xmx: 256m
+  storage:
+    size: 10Gi
+  resources:
+    request:
+      cpu: "100m"
+      memory: "256Mi"
+    limit:
+      cpu: "500m"
+      memory: "512Mi"
+topic:
+  name: logs
+  replicas: 1
+  partition: 100
+  ttl: 3600000
+namespace: kafka
+
+
+

@@ -1,0 +1,56 @@
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ .Values.cluster.name }}
+  namespace: {{ .Values.namespace }}
+  annotations:
+    strimzi.io/kraft: {{ .Values.kraft.status | default "enabled" | quote }}
+    strimzi.io/node-pools: "enabled"
+spec:
+  kafka:
+    version: {{ .Values.cluster.spec.version }}
+    # When node-pools are enabled, replicas/storage/resources come from KafkaNodePool CRs.
+    # Only cluster-wide settings belong here.
+    listeners:
+      - name: plain
+        port: {{ .Values.cluster.spec.port }}
+        type: {{ .Values.cluster.spec.type }}
+        tls: {{ .Values.cluster.spec.tls }}
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+
+  entityOperator:
+    topicOperator:
+      # Reconcile every 5 minutes instead of the default 2 min — reduces CPU spikes
+      # on resource-constrained nodes (≤4 vCPU). Adequate for logging-only workloads.
+      reconciliationIntervalMs: 300000
+      resources:
+        requests: { cpu: "50m",  memory: "128Mi" }
+        limits:   { cpu: "300m", memory: "384Mi" }
+    userOperator:
+      reconciliationIntervalMs: 300000
+      resources:
+        requests: { cpu: "50m",  memory: "128Mi" }
+        limits:   { cpu: "300m", memory: "384Mi" }
+
+  # Kafka Exporter exposes consumer group lag metrics consumed by Prometheus.
+  # Metric: kafka_consumergroup_lag — critical for detecting message backpressure
+  # before EventService starts dropping or blocking writes to ClickHouse.
+  kafkaExporter:
+    groupRegex: ".*"
+    topicRegex: ".*"
+    resources:
+      requests:
+        cpu: 100m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 128Mi
+    readinessProbe:
+      initialDelaySeconds: 15
+      timeoutSeconds: 5
+    livenessProbe:
+      initialDelaySeconds: 15
+      timeoutSeconds: 5

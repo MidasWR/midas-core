@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Values.AnalyseService.DNS}}
+  labels:
+    app: {{.Values.AnalyseService.DNS}}
+spec:
+  replicas: {{.Values.Gateway.DeploymentReplicas}}
+  selector:
+    matchLabels:
+      app: {{.Values.AnalyseService.DNS}}
+  template:
+    metadata:
+      labels:
+        app: {{.Values.AnalyseService.DNS}}
+    spec:
+      initContainers:
+        - name: wait-for-clickhouse-schema
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for ClickHouse schema..."
+              CH_URL="http://clickhouse-log-c-clickhouse.clickhouse.svc.cluster.local:8123"
+              # Check for table existence: logs.event_logs
+              until wget -qO- "${CH_URL}/?query=EXISTS+TABLE+logs.event_logs" | grep -q "1"; do
+                echo "Schema not ready, waiting..."
+                sleep 5
+              done
+              echo "ClickHouse schema is ready!"
+      containers:
+        - name: analyse-service
+          image:  "{{.Values.AnalyseService.Image}}:{{.Values.Tag}}"
+          imagePullPolicy: {{.Values.Policy.ImagePullPolicy}}
+          ports:
+            - containerPort: {{.Values.AnalyseService.RestPort}}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            failureThreshold: 60
+            periodSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 2
+      restartPolicy: {{.Values.Policy.RestartPolicy}}
+      securityContext:
+        runAsNonRoot: false
+
+

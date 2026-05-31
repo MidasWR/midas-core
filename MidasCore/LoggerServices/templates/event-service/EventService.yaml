@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Values.EventService.DNS}}
+  labels:
+    app: {{.Values.EventService.DNS}}
+spec:
+  replicas: {{.Values.EventService.DeploymentReplicas}}
+  selector:
+    matchLabels:
+      app: {{.Values.EventService.DNS}}
+  template:
+    metadata:
+      labels:
+        app: {{.Values.EventService.DNS}}
+    spec:
+      initContainers:
+        - name: wait-for-clickhouse-schema
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for ClickHouse schema..."
+              CH_URL="http://clickhouse-log-c-clickhouse.clickhouse.svc.cluster.local:8123"
+              # Check for table existence: logs.event_logs
+              until wget -qO- "${CH_URL}/?query=EXISTS+TABLE+logs.event_logs" | grep -q "1"; do
+                echo "Schema not ready, waiting..."
+                sleep 5
+              done
+              echo "ClickHouse schema is ready!"
+      containers:
+        - name: event-service
+          image: "{{.Values.EventService.Image}}:{{.Values.Tag}}"
+          imagePullPolicy: {{.Values.Policy.ImagePullPolicy}}
+          ports:
+            - containerPort: {{.Values.EventService.RestPort}}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          env:
+            - name: GOGC
+              value: "100"
+            - name: GODEBUG
+              value: "madvdontneed=1"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          # failureThreshold * periodSeconds = 180s window to account for the
+          # initContainer that waits for ClickHouse schema to be ready.
+          startupProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            failureThreshold: 60
+            periodSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 2
+
+      restartPolicy: {{.Values.Policy.RestartPolicy}}
+      securityContext:
+        runAsNonRoot: false

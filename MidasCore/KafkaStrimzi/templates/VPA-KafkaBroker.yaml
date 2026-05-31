@@ -1,0 +1,24 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  name: kafka-broker-vpa
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: {{ .Values.cluster.name }}-{{ .Values.broker.name }}
+  updatePolicy:
+    # Recreate: VPA evicts pods to apply new resource recommendations.
+    # "Auto" is deprecated in VPA v1 — use explicit modes instead.
+    updateMode: "Recreate"
+  resourcePolicy:
+    containerPolicies:
+      - containerName: "*"
+        controlledResources: ["cpu", "memory"]
+        controlledValues: RequestsOnly
+        minAllowed:
+          cpu: "500m"
+          memory: "1Gi"
+        maxAllowed:
+          cpu: "4"
+          memory: "6Gi"

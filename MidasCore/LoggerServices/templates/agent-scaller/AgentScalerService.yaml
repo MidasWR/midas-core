@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.AgentScalerService.DNS }}
+  labels:
+    app: {{ .Values.AgentScalerService.DNS }}
+spec:
+  replicas: {{ .Values.AgentScalerService.DeploymentReplicas }}
+  selector:
+    matchLabels:
+      app: {{ .Values.AgentScalerService.DNS }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.AgentScalerService.DNS }}
+    spec:
+      serviceAccountName: {{ .Values.AgentScalerService.DNS }}-sa
+      {{- if .Values.AgentScalerService.k3sToken.enabled }}
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      {{- end }}
+
+      containers:
+        - name: gateway
+          image: "{{ .Values.AgentScalerService.Image }}:{{.Values.Tag}}"
+          imagePullPolicy: {{ .Values.Policy.ImagePullPolicy }}
+          ports:
+            - containerPort: {{ .Values.AgentScalerService.RestPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: app-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            failureThreshold: 30
+            periodSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 5
+            failureThreshold: 3
+            timeoutSeconds: 2
+          livenessProbe:
+            tcpSocket:
+              port: {{.Values.All.targetPort}}
+            periodSeconds: 10
+            failureThreshold: 5
+            timeoutSeconds: 2
+
+          volumeMounts:
+            {{- if .Values.AgentScalerService.persistence.enabled }}
+            - name: auth-db
+              mountPath: {{ .Values.AgentScalerService.persistence.mountPath }}
+            {{- end }}
+            {{- if .Values.AgentScalerService.k3sToken.enabled }}
+            - name: rancher-varlib
+              mountPath: {{ .Values.AgentScalerService.k3sToken.mountPath }}
+              readOnly: true
+            {{- end }}
+
+      restartPolicy: {{ .Values.Policy.RestartPolicy }}
+
+      volumes:
+        {{- if .Values.AgentScalerService.persistence.enabled }}
+        - name: auth-db
+          persistentVolumeClaim:
+            claimName: {{ if .Values.AgentScalerService.persistence.existingClaim }}{{ .Values.AgentScalerService.persistence.existingClaim }}{{ else }}{{ .Values.AgentScalerService.DNS }}-db{{ end }}
+        {{- end }}
+        {{- if .Values.AgentScalerService.k3sToken.enabled }}
+        - name: rancher-varlib
+          hostPath:
+            path: {{ .Values.AgentScalerService.k3sToken.hostPath | quote }}
+            type: Directory
+        {{- end }}
+
+      securityContext:
+        runAsNonRoot: false
