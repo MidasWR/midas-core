@@ -112,6 +112,25 @@ for i in {1..60}; do
   sleep 2
 done
 
+# Helper: check if Longhorn node already has a disk on the same path.
+longhorn_disk_path_exists() {
+  local node="$1"
+  local path="$2"
+  local norm="${path%/}"
+
+  kubectl -n longhorn-system get nodes.longhorn.io "${node}" -o json \
+    | python3 -c "
+import json, sys
+norm = sys.argv[1].rstrip('/')
+data = json.load(sys.stdin)
+for disk in (data.get('spec', {}).get('disks') or {}).values():
+    p = (disk.get('path') or '').rstrip('/')
+    if p == norm:
+        sys.exit(0)
+sys.exit(1)
+" "${norm}"
+}
+
 # Helper: patch with retries when Longhorn is syncing disks.
 # IMPORTANT: Never patch /spec/disks as a whole. Only patch a single key.
 patch_longhorn_node_disk() {
@@ -215,6 +234,10 @@ disk_key="disk-$(echo "${LONGHORN_DISK_PATH}" | tr '/.' '--' | tr -cd 'a-zA-Z0-9
 # patch all nodes
 while read -r n; do
   [[ -z "$n" ]] && continue
+  if longhorn_disk_path_exists "$n" "${LONGHORN_DISK_PATH}"; then
+    log " - skipping ${n}: disk path ${LONGHORN_DISK_PATH} already configured"
+    continue
+  fi
   log " - patching longhorn node: $n"
   if patch_longhorn_node_disk "$n" "$disk_key"; then
     wait_longhorn_disk_status "$n" "${LONGHORN_DISK_PATH}" || true
