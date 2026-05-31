@@ -243,3 +243,6 @@ helm_retry "helm upgrade --install kube-prom prometheus-community/kube-prometheu
   ${GRAFANA_ARGS} \
   --wait --atomic --timeout 15m
 "
+
+log ">>> Operators gate: final Strimzi check before infrastructure deploy"
+ensure_strimzi_operator

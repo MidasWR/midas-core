@@ -57,11 +57,11 @@ ensure_strimzi_operator(){
   local crd="kafkas.kafka.strimzi.io"
 
   if has_crd "$crd"; then
-    log "Strimzi CRD already present: ${crd}"
-    return 0
+    log "Strimzi CRD present — verifying operator deployment..."
+  else
+    log "Strimzi CRD missing — installing Strimzi Kafka Operator..."
   fi
 
-  log "Strimzi CRD missing — installing Strimzi Kafka Operator..."
   helm_retry "helm upgrade --install strimzi-operator strimzi/strimzi-kafka-operator \
     -n kafka --create-namespace \
     --set resources.requests.cpu=200m \
@@ -69,7 +69,11 @@ ensure_strimzi_operator(){
     --set resources.limits.cpu=1000m \
     --set resources.limits.memory=768Mi \
     --wait --atomic --timeout 10m"
+
   wait_crd "$crd" 300s
+
+  log "Waiting for Strimzi cluster operator deployment..."
+  kubectl -n kafka rollout status deployment/strimzi-cluster-operator --timeout=300s
 }
 
 wait_api(){
